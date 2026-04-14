@@ -26,6 +26,7 @@ auto_approve: true
 metric_tolerance: 0.01
 metric_direction: higher_is_better
 min_queue_depth: 5
+cli_version: 0.3.2
 ```
 
 **Parameter reference:**
@@ -40,6 +41,7 @@ min_queue_depth: 5
 - `review_timeout` — Time before an incomplete review claim expires. Default: `12h`.
 - `min_queue_depth` — Minimum number of unclaimed approved theses the lead should keep available. If the queue drops below this, the lead generates enough new theses to refill it. Default: `5`.
 - `max_queue_depth` — Maximum number of unclaimed approved theses the lead should allow in the queue at once. When omitted, there is no upper bound.
+- `cli_version` — Exact version of the `polyresearch` CLI that all nodes must use. When set, the CLI checks its own version at startup and refuses to run if it does not match. When omitted, no version check is performed.
 
 The parameter definitions live here. Concrete project values live in `PROGRAM.md`.
 
@@ -70,11 +72,11 @@ When you start, before doing anything else:
 5. Check your GitHub identity. Run `gh api user --jq '.login'` to see which GitHub account you are operating as. If your instructions specify a particular GitHub user (for example, "contribute as user X"), verify the result matches. If it does not, stop and report the mismatch before proceeding. If your instructions do not specify a user, proceed with whatever account `gh` is currently authenticated as.
 6. Create a distinct node ID for this session before running other `polyresearch` commands. This is required when multiple agents share the same checkout or when one GitHub login runs several workers in parallel:
 
-    ```bash
-    LOGIN=$(gh api user --jq '.login')
-    MACHINE_ID="$(hostname -s)-$(xxd -l2 -p /dev/urandom)"
-    export POLYRESEARCH_NODE_ID="${LOGIN}/${MACHINE_ID}"
-    ```
+   ```bash
+   LOGIN=$(gh api user --jq '.login')
+   MACHINE_ID="$(hostname -s)-$(xxd -l2 -p /dev/urandom)"
+   export POLYRESEARCH_NODE_ID="${LOGIN}/${MACHINE_ID}"
+   ```
 
 7. If `.polyresearch-node.toml` does not exist yet, run `polyresearch init --node "$MACHINE_ID"`. The CLI writes the fallback file used when `POLYRESEARCH_NODE_ID` is unset and records any optional node-specific `resource_policy`.
 8. Identify your role. If your instructions say "you are the lead," follow the lead loop. Otherwise, follow the contributor loop.
@@ -135,17 +137,22 @@ LOOP FOREVER:
 1. **Check pace.** Run `polyresearch pace`. Compare the effective resource policy against recent throughput and adjust how many experiments you run in parallel.
 2. **Check for theses.** Run `polyresearch status` and look for theses that are **approved and unclaimed**. The CLI derives canonical state from the comment trail and ignores invalid raw events.
 3. **If a claimable thesis exists:**
-   a. Run `polyresearch claim <issue-number>`.
+  a. Run `polyresearch claim <issue-number>`.
    b. The CLI posts the `polyresearch:claim` comment and creates a git worktree from `main` at `.worktrees/<issue-number>-<slug>/` on branch `thesis/<issue-number>-<slug>`. Change into that worktree before editing.
    c. Read PROGRAM.md for direction and constraints.
    d. Run experiments from inside that thesis worktree. Each attempt uses its own sub-branch: `thesis/<issue-number>-<slug>-attempt-<n>`. If you run attempts in parallel, use one worktree per active attempt.
-   e. For each attempt: - Make your changes within the editable surface defined in PROGRAM.md. - Commit your changes. - Run the experiment per PREPARE.md. Redirect output: `<run-command> > run.log 2>&1`. - Parse the metric per PREPARE.md. - Run `polyresearch attempt <issue-number> --metric <value> --baseline <value> --observation <observation> --summary "<summary>"`.
+   e. For each attempt:
+      - Make your changes within the editable surface defined in PROGRAM.md.
+      - Commit your changes.
+      - Run the experiment per PREPARE.md. Redirect output: `<run-command> > run.log 2>&1`.
+      - Parse the metric per PREPARE.md.
+      - Run `polyresearch attempt <issue-number> --metric <value> --baseline <value> --observation <observation> --summary "<summary>"`.
    f. **If you find an improvement:** check out the improved attempt branch, then run `polyresearch submit <issue-number>`. The CLI pushes the current branch and opens the candidate PR to `main`.
    g. **If no improvement after exhausting ideas:** run `polyresearch release <issue-number> --reason <reason>`. The thesis returns to the queue for another contributor.
    h. When the thesis is released or later resolved, remove its worktree with `git worktree remove` and return to the main worktree before claiming again.
 4. **Check for review work.** Run `polyresearch status` and look for PRs with a `polyresearch:policy-pass` comment and **no** `polyresearch:decision` comment. These need peer review. Skip PRs you authored.
 5. **If a reviewable PR exists:**
-   a. Run `polyresearch review-claim <pr-number>`.
+  a. Run `polyresearch review-claim <pr-number>`.
    b. Check out the **candidate SHA** (the PR head).
    c. Run the evaluation per PREPARE.md. Record the candidate metric.
    d. Check out the **base SHA** (the PR's merge base on `main`).
@@ -193,12 +200,14 @@ After any new thesis resolution later in the same iteration, append those rows b
 
 The event table below defines what to log:
 
+
 | Event                                 | Data source                                              | Action                                               |
 | ------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------- |
 | PR merged (`accepted`)                | `polyresearch:review` records on the PR                  | Append row with verified metric                      |
 | PR closed (any non-accepted outcome)  | `polyresearch:review` records + `polyresearch:decision`  | Append row with observed metric and decision outcome |
 | Attempt discarded (never became a PR) | `polyresearch:attempt` comments on thesis issue          | Append row with self-reported metric                 |
 | Thesis closed without any candidate   | `polyresearch:release` + `polyresearch:attempt` comments | Append rows for all logged attempts                  |
+
 
 ### Generate theses
 
@@ -530,6 +539,7 @@ When `required_confirmations` is greater than 0, candidate PRs go through peer r
 
 The `observation` field in `polyresearch:review` and `polyresearch:attempt` comments.
 
+
 | Observation      | Meaning                                                   |
 | ---------------- | --------------------------------------------------------- |
 | `improved`       | Candidate metric beats baseline beyond `metric_tolerance` |
@@ -537,11 +547,13 @@ The `observation` field in `polyresearch:review` and `polyresearch:attempt` comm
 | `crashed`        | Evaluation failed to complete (OOM, bug, timeout)         |
 | `infra_failure`  | Environment setup failed, could not run evaluation        |
 
+
 A reviewer reports what they saw. Nothing more.
 
 ### What the lead decides
 
 The `outcome` field in the `polyresearch:decision` comment. One per PR.
+
 
 | Outcome            | Condition                                          | Action                            |
 | ------------------ | -------------------------------------------------- | --------------------------------- |
@@ -551,6 +563,7 @@ The `outcome` field in the `polyresearch:decision` comment. One per PR.
 | `stale`            | Base SHA moved, candidate no longer comparable     | Close PR, thesis returns to queue |
 | `policy_rejection` | Candidate touched files outside editable surface   | Close PR, close issue             |
 | `infra_failure`    | Reviewers could not evaluate reliably              | Close PR, thesis returns to queue |
+
 
 On `stale` and `infra_failure`, the thesis is not permanently closed. It returns to Approved because the failure was not about the hypothesis.
 
@@ -570,6 +583,7 @@ Tab-separated. One header row and six columns.
 thesis	attempt	metric	baseline	status	summary
 ```
 
+
 | Column     | Description                                                                                                            |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `thesis`   | Issue reference, e.g. `#12`                                                                                            |
@@ -578,6 +592,7 @@ thesis	attempt	metric	baseline	status	summary
 | `baseline` | Metric on `main` at the time of the attempt                                                                            |
 | `status`   | `accepted`, `discarded`, `crashed`, `non_improvement`, `disagreement`, `stale`, `infra_failure`, or `policy_rejection` |
 | `summary`  | One-line description of what the experiment tried                                                                      |
+
 
 Example:
 
